@@ -15,13 +15,16 @@ use std::time::Instant;
 pub(crate) fn rdtsc() -> u64 {
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        std::arch::x86_64::_rdtsc()
+        let mut aux = 0_u32;
+        std::arch::x86_64::__rdtscp(&mut aux)
     }
 
     #[cfg(not(target_arch = "x86_64"))]
     {
-        // Fallback: use Instant for non-x86_64 (keeps the code compilable).
-        Instant::now().duration_since(Instant::now()).as_nanos() as u64
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
     }
 }
 

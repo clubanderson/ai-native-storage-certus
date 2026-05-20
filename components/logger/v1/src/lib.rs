@@ -214,8 +214,12 @@ impl LoggerComponentV1 {
             format!("{} {} {}\n", timestamp, level.as_str(), msg)
         };
         let mut writer = self.state.writer.lock().unwrap();
-        let _ = writer.write_all(line.as_bytes());
-        let _ = writer.flush();
+        if let Err(err) = writer.write_all(line.as_bytes()) {
+            let _ = writeln!(io::stderr(), "logger write error: {err}");
+        }
+        if let Err(err) = writer.flush() {
+            let _ = writeln!(io::stderr(), "logger flush error: {err}");
+        }
     }
 }
 

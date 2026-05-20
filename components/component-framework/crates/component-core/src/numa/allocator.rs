@@ -86,7 +86,13 @@ impl NumaAllocator {
         }
 
         // Round up to page size for mmap.
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let raw_page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if raw_page_size <= 0 {
+            return Err(NumaError::AllocationFailed(format!(
+                "sysconf(_SC_PAGESIZE) failed: returned {raw_page_size}",
+            )));
+        }
+        let page_size = raw_page_size as usize;
         let alloc_size = (size + page_size - 1) & !(page_size - 1);
 
         // SAFETY: mmap with MAP_ANONYMOUS | MAP_PRIVATE allocates fresh memory.
