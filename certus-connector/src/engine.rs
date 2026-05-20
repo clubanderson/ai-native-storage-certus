@@ -677,3 +677,469 @@ impl EngineInner {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use interfaces::{
+        DispatchMapError, DispatcherError, DmaBuffer, GpuDeviceInfo, GpuDmaBuffer,
+        GpuIpcHandle, LookupResult,
+    };
+
+    #[derive(Default)]
+    struct MockDispatcherState {
+        check_results: HashMap<CacheKey, Result<bool, DispatcherError>>,
+        remove_results: HashMap<CacheKey, Result<(), DispatcherError>>,
+        touch_results: HashMap<CacheKey, Result<(), DispatcherError>>,
+        populate_results: HashMap<CacheKey, Result<(), DispatcherError>>,
+        lookup_results: HashMap<CacheKey, Result<(), DispatcherError>>,
+        populate_calls: Vec<(CacheKey, usize, u32)>,
+        lookup_calls: Vec<(CacheKey, usize, u32)>,
+        shutdown_calls: u64,
+    }
+
+    pub(crate) struct MockDispatcher {
+        state: Mutex<MockDispatcherState>,
+    }
+
+    impl MockDispatcher {
+        pub(crate) fn new() -> Self {
+            Self {
+                state: Mutex::new(MockDispatcherState::default()),
+            }
+        }
+
+        pub(crate) fn set_check_result(&self, key: CacheKey, result: Result<bool, DispatcherError>) {
+            self.state.lock().unwrap().check_results.insert(key, result);
+        }
+
+        pub(crate) fn set_remove_result(&self, key: CacheKey, result: Result<(), DispatcherError>) {
+            self.state.lock().unwrap().remove_results.insert(key, result);
+        }
+
+        pub(crate) fn set_touch_result(&self, key: CacheKey, result: Result<(), DispatcherError>) {
+            self.state.lock().unwrap().touch_results.insert(key, result);
+        }
+
+        pub(crate) fn set_populate_result(&self, key: CacheKey, result: Result<(), DispatcherError>) {
+            self.state.lock().unwrap().populate_results.insert(key, result);
+        }
+
+        pub(crate) fn set_lookup_result(&self, key: CacheKey, result: Result<(), DispatcherError>) {
+            self.state.lock().unwrap().lookup_results.insert(key, result);
+        }
+
+        pub(crate) fn populate_calls(&self) -> Vec<(CacheKey, usize, u32)> {
+            self.state.lock().unwrap().populate_calls.clone()
+        }
+
+        pub(crate) fn lookup_calls(&self) -> Vec<(CacheKey, usize, u32)> {
+            self.state.lock().unwrap().lookup_calls.clone()
+        }
+
+        pub(crate) fn shutdown_calls(&self) -> u64 {
+            self.state.lock().unwrap().shutdown_calls
+        }
+    }
+
+    impl IDispatcher for MockDispatcher {
+        fn initialize(&self, _config: DispatcherConfig) -> Result<(), DispatcherError> {
+            Ok(())
+        }
+
+        fn shutdown(&self) -> Result<(), DispatcherError> {
+            self.state.lock().unwrap().shutdown_calls += 1;
+            Ok(())
+        }
+
+        fn lookup(&self, key: CacheKey, ipc_handle: IpcHandle) -> Result<(), DispatcherError> {
+            let mut state = self.state.lock().unwrap();
+            state.lookup_calls.push((key, ipc_handle.address as usize, ipc_handle.size));
+            state.lookup_results.get(&key).cloned().unwrap_or(Ok(()))
+        }
+
+        fn check(&self, key: CacheKey) -> Result<bool, DispatcherError> {
+            self.state.lock().unwrap().check_results.get(&key).cloned().unwrap_or(Ok(false))
+        }
+
+        fn remove(&self, key: CacheKey) -> Result<(), DispatcherError> {
+            self.state.lock().unwrap().remove_results.get(&key).cloned().unwrap_or(Ok(()))
+        }
+
+        fn populate(&self, key: CacheKey, ipc_handle: IpcHandle) -> Result<(), DispatcherError> {
+            let mut state = self.state.lock().unwrap();
+            state.populate_calls.push((key, ipc_handle.address as usize, ipc_handle.size));
+            state.populate_results.get(&key).cloned().unwrap_or(Ok(()))
+        }
+
+        fn prepare_store(&self, _key: CacheKey, _size: u32) -> Result<Arc<DmaBuffer>, DispatcherError> {
+            Err(DispatcherError::InvalidParameter("unused in engine tests".into()))
+        }
+
+        fn commit_store(&self, _key: CacheKey) -> Result<(), DispatcherError> {
+            Ok(())
+        }
+
+        fn cancel_store(&self, _key: CacheKey) -> Result<(), DispatcherError> {
+            Ok(())
+        }
+
+        fn touch(&self, key: CacheKey) -> Result<(), DispatcherError> {
+            self.state.lock().unwrap().touch_results.get(&key).cloned().unwrap_or(Ok(()))
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    pub(crate) enum MockLookupResult {
+        NotExist,
+        Mismatch,
+        BlockDevice(u64),
+    }
+
+    #[derive(Default)]
+    struct MockDispatchMapState {
+        lookup_results: HashMap<CacheKey, MockLookupResult>,
+        oldest_keys: Vec<CacheKey>,
+        release_read_calls: Vec<CacheKey>,
+    }
+
+    pub(crate) struct MockDispatchMap {
+        state: Mutex<MockDispatchMapState>,
+    }
+
+    impl MockDispatchMap {
+        pub(crate) fn new() -> Self {
+            Self {
+                state: Mutex::new(MockDispatchMapState::default()),
+            }
+        }
+
+        pub(crate) fn set_lookup_result(&self, key: CacheKey, result: MockLookupResult) {
+            self.state.lock().unwrap().lookup_results.insert(key, result);
+        }
+
+        pub(crate) fn set_oldest_keys(&self, keys: Vec<CacheKey>) {
+            self.state.lock().unwrap().oldest_keys = keys;
+        }
+
+        pub(crate) fn release_read_calls(&self) -> Vec<CacheKey> {
+            self.state.lock().unwrap().release_read_calls.clone()
+        }
+    }
+
+    impl IDispatchMap for MockDispatchMap {
+        fn set_dma_alloc(&self, _alloc: DmaAllocFn) {}
+
+        fn initialize(&self) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn create_staging(&self, _key: CacheKey, _size: u32) -> Result<Arc<DmaBuffer>, DispatchMapError> {
+            Err(DispatchMapError::NotInitialized("unused in engine tests".into()))
+        }
+
+        fn lookup(&self, key: CacheKey) -> Result<LookupResult, DispatchMapError> {
+            match self.state.lock().unwrap().lookup_results.get(&key).copied().unwrap_or(MockLookupResult::NotExist) {
+                MockLookupResult::NotExist => Ok(LookupResult::NotExist),
+                MockLookupResult::Mismatch => Ok(LookupResult::MismatchSize),
+                MockLookupResult::BlockDevice(offset) => Ok(LookupResult::BlockDevice { offset }),
+            }
+        }
+
+        fn convert_to_storage(&self, _key: CacheKey, _offset: u64) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn take_read(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn take_write(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn release_read(&self, key: CacheKey) -> Result<(), DispatchMapError> {
+            self.state.lock().unwrap().release_read_calls.push(key);
+            Ok(())
+        }
+
+        fn release_write(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn downgrade_reference(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn remove(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn touch(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Ok(())
+        }
+
+        fn oldest_keys(&self, n: usize) -> Vec<CacheKey> {
+            self.state.lock().unwrap().oldest_keys.iter().copied().take(n).collect()
+        }
+
+        fn create_memory_tier_entry(&self, _key: CacheKey, _pointer: *mut u8, _size: u32) -> Result<(), DispatchMapError> {
+            Err(DispatchMapError::NotInitialized("unused in engine tests".into()))
+        }
+
+        fn convert_memory_tier_to_block(&self, _key: CacheKey) -> Result<(), DispatchMapError> {
+            Err(DispatchMapError::NotInitialized("unused in engine tests".into()))
+        }
+    }
+
+    pub(crate) struct MockGpuServices {
+        shutdown_calls: AtomicU64,
+    }
+
+    impl MockGpuServices {
+        pub(crate) fn new() -> Self {
+            Self {
+                shutdown_calls: AtomicU64::new(0),
+            }
+        }
+
+        pub(crate) fn shutdown_calls(&self) -> u64 {
+            self.shutdown_calls.load(Ordering::Acquire)
+        }
+    }
+
+    impl IGpuServices for MockGpuServices {
+        fn initialize(&self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn shutdown(&self) -> Result<(), String> {
+            self.shutdown_calls.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }
+
+        fn get_devices(&self) -> Result<Vec<GpuDeviceInfo>, String> {
+            Ok(vec![])
+        }
+
+        fn deserialize_ipc_handle(&self, _base64_payload: &str) -> Result<GpuIpcHandle, String> {
+            Err("unused in engine tests".into())
+        }
+
+        fn verify_memory(&self, _handle: &GpuIpcHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn pin_memory(&self, _handle: &GpuIpcHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn unpin_memory(&self, _handle: &GpuIpcHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn create_dma_buffer(&self, _handle: GpuIpcHandle) -> Result<GpuDmaBuffer, String> {
+            Err("unused in engine tests".into())
+        }
+
+        fn dma_copy_to_host(&self, _src: *const std::ffi::c_void, _dst: &DmaBuffer, _size: usize) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn dma_copy_to_device(&self, _src: &DmaBuffer, _dst: *mut std::ffi::c_void, _size: usize) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn prepare_memory_for_spdk(&self, _base64_payload: &str, _device_index: Option<u32>) -> Result<DmaBuffer, String> {
+            Err("unused in engine tests".into())
+        }
+    }
+
+    pub(crate) fn build_engine(
+        dispatcher: Arc<dyn IDispatcher + Send + Sync>,
+        dispatch_map: Arc<dyn IDispatchMap + Send + Sync>,
+        gpu_services: Arc<dyn IGpuServices + Send + Sync>,
+        gpu_block_size: u64,
+        max_cache_entries: usize,
+        eviction_watermark: usize,
+        entry_count: u64,
+        initialized: bool,
+    ) -> EngineInner {
+        EngineInner {
+            dispatcher,
+            dispatch_map,
+            gpu_services,
+            gpu_block_size,
+            max_cache_entries,
+            eviction_watermark,
+            entry_count: AtomicU64::new(entry_count),
+            jobs: Mutex::new(HashMap::new()),
+            next_internal_id: AtomicU64::new(0),
+            initialized: AtomicBool::new(initialized),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    use super::test_support::{
+        build_engine, MockDispatchMap, MockDispatcher, MockGpuServices, MockLookupResult,
+    };
+    use interfaces::DispatcherError;
+
+    #[test]
+    fn parse_pci_addr_parses_components() {
+        let addr = parse_pci_addr("0000:2a:1f.3").expect("valid PCI address");
+        assert_eq!(addr.domain, 0);
+        assert_eq!(addr.bus, 0x2a);
+        assert_eq!(addr.dev, 0x1f);
+        assert_eq!(addr.func, 3);
+    }
+
+    #[test]
+    fn parse_pci_addr_rejects_invalid_input() {
+        let err = parse_pci_addr("0000:2a:zz.3").expect_err("invalid device should fail");
+        assert!(err.contains("invalid dev"));
+    }
+
+    #[test]
+    fn batch_check_counts_until_first_miss() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        dispatcher.set_check_result(1, Ok(true));
+        dispatcher.set_check_result(2, Ok(true));
+        let engine = build_engine(
+            dispatcher.clone(),
+            Arc::new(MockDispatchMap::new()),
+            Arc::new(MockGpuServices::new()),
+            4096,
+            16,
+            16,
+            0,
+            true,
+        );
+
+        assert_eq!(engine.batch_check(&[1, 2, 3, 4]).unwrap(), 2);
+    }
+
+    #[test]
+    fn prepare_store_evicts_oldest_unprotected_key() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        dispatcher.set_check_result(1, Ok(true));
+        dispatcher.set_check_result(2, Ok(false));
+        let dispatch_map = Arc::new(MockDispatchMap::new());
+        dispatch_map.set_oldest_keys(vec![99, 2]);
+        let engine = build_engine(
+            dispatcher.clone(),
+            dispatch_map,
+            Arc::new(MockGpuServices::new()),
+            4096,
+            4,
+            1,
+            1,
+            true,
+        );
+
+        let result = engine.prepare_store(&[1, 2]).unwrap();
+        assert_eq!(result, Some((vec![2], vec![99])));
+        assert_eq!(engine.entry_count.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn prepare_load_releases_prior_reads_on_error() {
+        let dispatch_map = Arc::new(MockDispatchMap::new());
+        dispatch_map.set_lookup_result(10, MockLookupResult::BlockDevice(4096));
+        dispatch_map.set_lookup_result(11, MockLookupResult::NotExist);
+        let engine = build_engine(
+            Arc::new(MockDispatcher::new()),
+            dispatch_map.clone(),
+            Arc::new(MockGpuServices::new()),
+            4096,
+            8,
+            8,
+            0,
+            true,
+        );
+
+        let err = engine.prepare_load(&[10, 11]).expect_err("missing key should fail");
+        assert!(err.to_string().contains("key 11 not found"));
+        assert_eq!(dispatch_map.release_read_calls(), vec![10]);
+    }
+
+    #[test]
+    fn store_async_records_offsets_and_completions() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        let engine = build_engine(
+            dispatcher.clone(),
+            Arc::new(MockDispatchMap::new()),
+            Arc::new(MockGpuServices::new()),
+            4096,
+            16,
+            16,
+            0,
+            true,
+        );
+
+        let ok = engine.store_async(7, &[3, 5], &[101, 102]).unwrap();
+        assert!(ok);
+        assert_eq!(
+            dispatcher.populate_calls(),
+            vec![(101, 3 * 4096, 4096), (102, 5 * 4096, 4096)]
+        );
+        assert_eq!(engine.entry_count.load(Ordering::Acquire), 2);
+        assert_eq!(engine.poll_completions().unwrap(), vec![(7, true)]);
+        assert!(engine.poll_completions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn load_async_reports_dispatch_failures() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        dispatcher.set_lookup_result(202, Err(DispatcherError::IoError("boom".into())));
+        let engine = build_engine(
+            dispatcher.clone(),
+            Arc::new(MockDispatchMap::new()),
+            Arc::new(MockGpuServices::new()),
+            4096,
+            16,
+            16,
+            0,
+            true,
+        );
+
+        let ok = engine.load_async(9, &[1, 2], &[201, 202]).unwrap();
+        assert!(!ok);
+        assert_eq!(
+            dispatcher.lookup_calls(),
+            vec![(201, 4096, 4096), (202, 8192, 4096)]
+        );
+        assert_eq!(engine.poll_completions().unwrap(), vec![(9, false)]);
+    }
+
+    #[test]
+    fn shutdown_only_runs_once() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        let gpu = Arc::new(MockGpuServices::new());
+        let engine = build_engine(
+            dispatcher.clone(),
+            Arc::new(MockDispatchMap::new()),
+            gpu.clone(),
+            4096,
+            16,
+            16,
+            0,
+            true,
+        );
+
+        engine.shutdown().unwrap();
+        engine.shutdown().unwrap();
+
+        assert_eq!(dispatcher.shutdown_calls(), 1);
+        assert_eq!(gpu.shutdown_calls(), 1);
+    }
+}

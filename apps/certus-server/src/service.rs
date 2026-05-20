@@ -1,7 +1,7 @@
 //! gRPC service implementation for the Certus Dispatcher.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
@@ -24,11 +24,11 @@ pub fn dispatcher_server(svc: DispatcherService) -> DispatcherServer<DispatcherS
 }
 
 pub struct DispatcherService {
-    dispatcher: Arc<Mutex<Arc<dyn IDispatcher + Send + Sync>>>,
+    dispatcher: Arc<dyn IDispatcher + Send + Sync>,
 }
 
 impl DispatcherService {
-    pub fn new(dispatcher: Arc<Mutex<Arc<dyn IDispatcher + Send + Sync>>>) -> Self {
+    pub fn new(dispatcher: Arc<dyn IDispatcher + Send + Sync>) -> Self {
         Self { dispatcher }
     }
 }
@@ -130,7 +130,6 @@ impl Dispatcher for DispatcherService {
 
         let dispatcher = Arc::clone(&self.dispatcher);
         let results = tokio::task::spawn_blocking(move || {
-            let disp = dispatcher.lock().unwrap();
             req.entries
                 .iter()
                 .map(|entry| {
@@ -158,7 +157,7 @@ impl Dispatcher for DispatcherService {
                         address: dev_ptr as *mut u8,
                         size: handle.size,
                     };
-                    let result = match disp.populate(entry.key, ipc) {
+                    let result = match dispatcher.populate(entry.key, ipc) {
                         Ok(()) => success_result(entry.key),
                         Err(e) => error_result(entry.key, &e),
                     };
@@ -183,7 +182,6 @@ impl Dispatcher for DispatcherService {
 
         let dispatcher = Arc::clone(&self.dispatcher);
         let results = tokio::task::spawn_blocking(move || {
-            let disp = dispatcher.lock().unwrap();
             // Cache opened IPC handles within the batch to avoid repeated
             // cudaIpcOpenMemHandle/Close for entries sharing the same handle.
             let mut ipc_cache: HashMap<[u8; 64], *mut std::ffi::c_void> = HashMap::new();
@@ -234,7 +232,7 @@ impl Dispatcher for DispatcherService {
                         address: dev_ptr as *mut u8,
                         size: handle.size,
                     };
-                    match disp.lookup(entry.key, ipc) {
+                    match dispatcher.lookup(entry.key, ipc) {
                         Ok(()) => success_result(entry.key),
                         Err(e) => error_result(entry.key, &e),
                     }
@@ -263,11 +261,10 @@ impl Dispatcher for DispatcherService {
 
         let dispatcher = Arc::clone(&self.dispatcher);
         let results = tokio::task::spawn_blocking(move || {
-            let disp = dispatcher.lock().unwrap();
             req.keys
                 .iter()
                 .map(|&key| {
-                    let exists: bool = disp.check(key).unwrap_or_default();
+                    let exists: bool = dispatcher.check(key).unwrap_or_default();
                     CheckResult { key, exists }
                 })
                 .collect::<Vec<_>>()
@@ -287,10 +284,9 @@ impl Dispatcher for DispatcherService {
 
         let dispatcher = Arc::clone(&self.dispatcher);
         let results = tokio::task::spawn_blocking(move || {
-            let disp = dispatcher.lock().unwrap();
             req.keys
                 .iter()
-                .map(|&key| match disp.remove(key) {
+                .map(|&key| match dispatcher.remove(key) {
                     Ok(()) => success_result(key),
                     Err(e) => error_result(key, &e),
                 })
@@ -311,10 +307,9 @@ impl Dispatcher for DispatcherService {
 
         let dispatcher = Arc::clone(&self.dispatcher);
         let results = tokio::task::spawn_blocking(move || {
-            let disp = dispatcher.lock().unwrap();
             req.keys
                 .iter()
-                .map(|&key| match disp.touch(key) {
+                .map(|&key| match dispatcher.touch(key) {
                     Ok(()) => success_result(key),
                     Err(e) => error_result(key, &e),
                 })

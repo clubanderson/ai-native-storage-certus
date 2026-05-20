@@ -7,7 +7,7 @@
 mod service;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use clap::Parser;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
@@ -288,9 +288,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Certus component stack
     let dispatcher =
         initialize_component_stack(&cli.metadata_pci, &cli.data_pci, &cli.dispatcher_version)?;
-    let dispatcher_mutex = Arc::new(Mutex::new(dispatcher));
 
-    let svc = DispatcherService::new(Arc::clone(&dispatcher_mutex));
+    let svc = DispatcherService::new(Arc::clone(&dispatcher));
 
     let addr = cli.listen.parse()?;
 
@@ -319,9 +318,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Shutdown dispatcher
-    let disp = dispatcher_mutex.lock().unwrap();
-    let _ = disp.shutdown();
+    let _ = dispatcher.shutdown();
     eprintln!("certus-server: shutdown complete");
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_pci_address_parses_hex_components() {
+        let parsed = parse_pci_address("0000:2a:1f.3").expect("valid PCI address");
+        assert_eq!(parsed.domain, 0x0000);
+        assert_eq!(parsed.bus, 0x2a);
+        assert_eq!(parsed.dev, 0x1f);
+        assert_eq!(parsed.func, 0x3);
+    }
+
+    #[test]
+    fn validate_pci_address_rejects_invalid_formats() {
+        let err = validate_pci_address("0000:zz:00.0").expect_err("invalid bus should fail");
+        assert!(err.contains("invalid PCI bus"));
+
+        let err = parse_pci_address("0000:01:00").expect_err("missing function should fail");
+        assert!(err.contains("expected DD.F"));
+    }
 }

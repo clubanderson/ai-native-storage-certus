@@ -165,3 +165,58 @@ fn certus_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CertusConfig>()?;
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use pyo3::types::{PyDict, PyModule};
+
+    use crate::engine::test_support::{build_engine, MockDispatchMap, MockDispatcher, MockGpuServices};
+
+    #[test]
+    fn new_requires_required_config_keys() {
+        Python::with_gil(|py| {
+            let config = PyDict::new_bound(py);
+            let err = CertusEngine::new(&config).expect_err("missing config should fail");
+            assert!(err.to_string().contains("data_pci_addrs"));
+        });
+    }
+
+    #[test]
+    fn public_api_methods_delegate_to_inner() {
+        let dispatcher = Arc::new(MockDispatcher::new());
+        dispatcher.set_check_result(1, Ok(true));
+        dispatcher.set_check_result(2, Ok(false));
+        let engine = CertusEngine {
+            inner: build_engine(
+                dispatcher.clone(),
+                Arc::new(MockDispatchMap::new()),
+                Arc::new(MockGpuServices::new()),
+                4096,
+                16,
+                16,
+                0,
+                true,
+            ),
+        };
+
+        assert_eq!(engine.batch_check(vec![1, 2]).unwrap(), 1);
+        assert_eq!(engine.prepare_store(vec![1, 2]).unwrap(), Some((vec![2], vec![])));
+        assert!(engine.store_async(12, vec![4], vec![7]).unwrap());
+        assert_eq!(engine.poll_completions().unwrap(), vec![(12, true)]);
+        engine.shutdown().unwrap();
+    }
+
+    #[test]
+    fn module_registration_exports_python_classes() {
+        Python::with_gil(|py| {
+            let module = PyModule::new_bound(py, "certus_native_test").expect("module");
+            certus_native(&module).expect("module init");
+            assert!(module.getattr("CertusEngine").is_ok());
+            assert!(module.getattr("CertusConfig").is_ok());
+        });
+    }
+}
