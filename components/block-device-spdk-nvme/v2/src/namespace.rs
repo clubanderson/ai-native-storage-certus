@@ -248,10 +248,11 @@ pub(crate) fn validate_lba_range(
     lba: u64,
     num_blocks: u64,
 ) -> Result<(), NvmeBlockError> {
-    if lba + num_blocks > ns.num_sectors {
+    let end_lba = lba.checked_add(num_blocks);
+    if end_lba.map_or(true, |end| end > ns.num_sectors) {
         return Err(NvmeBlockError::LbaOutOfRange(format!(
             "lba={lba} + num_blocks={num_blocks} = {} exceeds namespace {}'s sector count {}",
-            lba + num_blocks,
+            end_lba.map_or_else(|| "overflow".to_string(), |end| end.to_string()),
             ns.ns_id,
             ns.num_sectors,
         )));
@@ -324,6 +325,17 @@ mod tests {
             sector_size: 512,
         };
         assert!(validate_lba_range(&ns, 999, 0).is_ok());
+    }
+
+    #[test]
+    fn validate_lba_range_overflow_is_out_of_bounds() {
+        let ns = NvmeNamespaceInfo {
+            ns_id: 1,
+            num_sectors: 1000,
+            sector_size: 512,
+        };
+        let err = validate_lba_range(&ns, u64::MAX, 1).unwrap_err();
+        assert!(matches!(err, NvmeBlockError::LbaOutOfRange(_)));
     }
 
     #[test]
