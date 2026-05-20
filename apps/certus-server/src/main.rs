@@ -188,6 +188,9 @@ fn initialize_component_stack(
             // Without this, cudaMemcpy from mmap'd memory uses a staged internal
             // buffer, cutting H2D bandwidth roughly in half.
             if let Some((pool_ptr, pool_size)) = mt.pool_info() {
+                // SAFETY: `pool_ptr..pool_ptr + pool_size` describes the live memory-tier pool
+                // allocation owned by `mt`. The pool remains allocated for the lifetime of the
+                // dispatcher, and registration only hands that existing host range to CUDA.
                 let err = unsafe {
                     gpu_services::cuda_ffi::cudaHostRegister(
                         pool_ptr as *mut std::ffi::c_void,

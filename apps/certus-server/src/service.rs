@@ -74,6 +74,10 @@ fn open_cuda_ipc(handle_bytes: &[u8]) -> Result<*mut std::ffi::c_void, String> {
     let cuda_handle = cuda_ffi::cudaIpcMemHandle_t { reserved };
 
     let mut dev_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    // SAFETY: `dev_ptr` points to writable stack storage for the returned device pointer,
+    // and `cuda_handle` was copied from exactly 64 bytes supplied by the peer. CUDA owns the
+    // pointed-to device allocation; we only import the handle and close it with
+    // `cudaIpcCloseMemHandle` before the mapping can outlive this process.
     let err = unsafe {
         cuda_ffi::cudaIpcOpenMemHandle(
             &mut dev_ptr,
@@ -94,6 +98,9 @@ fn open_cuda_ipc(handle_bytes: &[u8]) -> Result<*mut std::ffi::c_void, String> {
 }
 
 fn close_cuda_ipc(dev_ptr: *mut std::ffi::c_void) {
+    // SAFETY: callers pass the non-null device pointer previously returned by
+    // `cudaIpcOpenMemHandle`, and they invoke this exactly once after all uses of the mapping
+    // have completed on the current thread.
     unsafe {
         cuda_ffi::cudaIpcCloseMemHandle(dev_ptr);
     }
