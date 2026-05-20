@@ -85,3 +85,62 @@ pub(crate) fn slab_from_descriptor(desc: &SlabDescriptor) -> Slab {
     }
     slab
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slab_from_fresh_descriptor_preserves_metadata() {
+        let desc = SlabDescriptor {
+            start_offset: 8_192,
+            slab_size: 4 * 4_096,
+            element_size: 4_096,
+            keys: vec![FREE_KEY; 4],
+        };
+
+        let slab = slab_from_descriptor(&desc);
+
+        assert_eq!(slab.start_offset, desc.start_offset);
+        assert_eq!(slab.slab_size, desc.slab_size);
+        assert_eq!(slab.element_size, desc.element_size);
+        assert_eq!(slab.num_slots(), 4);
+        assert!(slab.is_empty());
+        assert_eq!(slab.bitmap.count_set(), 0);
+        assert_eq!(slab.keys, desc.keys);
+    }
+
+    #[test]
+    fn slab_from_descriptor_marks_only_non_free_keys_allocated() {
+        let desc = SlabDescriptor {
+            start_offset: 16_384,
+            slab_size: 4 * 4_096,
+            element_size: 4_096,
+            keys: vec![11, FREE_KEY, 42, 0],
+        };
+
+        let slab = slab_from_descriptor(&desc);
+
+        assert_eq!(slab.num_slots(), 4);
+        assert!(!slab.is_empty());
+        assert!(!slab.is_full());
+        assert_eq!(slab.bitmap.count_set(), 3);
+        assert_eq!(slab.get_key(0), 11);
+        assert_eq!(slab.get_key(1), FREE_KEY);
+        assert_eq!(slab.get_key(2), 42);
+        assert_eq!(slab.get_key(3), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn slab_from_corrupt_descriptor_panics_when_keys_exceed_capacity() {
+        let desc = SlabDescriptor {
+            start_offset: 0,
+            slab_size: 4_096,
+            element_size: 4_096,
+            keys: vec![1, 2],
+        };
+
+        let _ = slab_from_descriptor(&desc);
+    }
+}

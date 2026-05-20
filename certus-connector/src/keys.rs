@@ -17,3 +17,22 @@ pub fn to_cache_key(py_key: u64) -> CacheKey {
 pub fn to_cache_keys(py_keys: &[u64]) -> Vec<CacheKey> {
     py_keys.iter().copied().map(to_cache_key).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_cache_key_preserves_known_values() {
+        for key in [0, 1, 42, 9_876_543_210, u64::MAX] {
+            assert_eq!(to_cache_key(key), key);
+        }
+    }
+
+    #[test]
+    fn to_cache_keys_preserves_batch_order_and_edges() {
+        let keys = [0, 7, 1024, u64::MAX];
+
+        assert_eq!(to_cache_keys(&keys), keys.to_vec());
+    }
+}

@@ -326,3 +326,59 @@ impl Dispatcher for DispatcherService {
         Ok(Response::new(BatchTouchResponse { results }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tonic::Code;
+
+    #[test]
+    fn check_duplicate_keys_allows_unique_batches() {
+        assert!(check_duplicate_keys(&[]).is_ok());
+        assert!(check_duplicate_keys(&[0, 1, 42, u64::MAX]).is_ok());
+    }
+
+    #[test]
+    fn check_duplicate_keys_rejects_duplicates() {
+        let err = check_duplicate_keys(&[7, 3, 7]).unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "duplicate key in batch: 7");
+    }
+
+    #[test]
+    fn map_dispatcher_error_formats_key_variants() {
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::KeyNotFound(41)),
+            (ErrorCode::KeyNotFound, "key not found: 41".to_string())
+        );
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::AlreadyExists(99)),
+            (ErrorCode::AlreadyExists, "key already exists: 99".to_string())
+        );
+    }
+
+    #[test]
+    fn map_dispatcher_error_preserves_message_variants() {
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::NotInitialized("boot".into())),
+            (ErrorCode::NotInitialized, "boot".to_string())
+        );
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::AllocationFailed("oom".into())),
+            (ErrorCode::AllocationFailed, "oom".to_string())
+        );
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::IoError("disk".into())),
+            (ErrorCode::IoError, "disk".to_string())
+        );
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::Timeout("slow".into())),
+            (ErrorCode::Timeout, "slow".to_string())
+        );
+        assert_eq!(
+            map_dispatcher_error(&DispatcherError::InvalidParameter("bad input".into())),
+            (ErrorCode::InvalidParameter, "bad input".to_string())
+        );
+    }
+}
