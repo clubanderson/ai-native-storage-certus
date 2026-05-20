@@ -9,6 +9,15 @@ use crate::idispatch_map::CacheKey;
 use crate::spdk_types::DmaBuffer;
 
 /// Block device component version used internally by the dispatcher.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::BlockDeviceVersion;
+///
+/// let version = BlockDeviceVersion::V2;
+/// assert_eq!(version, BlockDeviceVersion::default());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockDeviceVersion {
     /// block-device-spdk-nvme v1
@@ -19,6 +28,15 @@ pub enum BlockDeviceVersion {
 }
 
 /// Extent manager component version used internally by the dispatcher.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::ExtentManagerVersion;
+///
+/// let version = ExtentManagerVersion::V2;
+/// assert_eq!(version, ExtentManagerVersion::default());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExtentManagerVersion {
     /// extent-manager v2 (latest)
@@ -165,6 +183,20 @@ impl fmt::Display for DispatcherError {
 
 impl std::error::Error for DispatcherError {}
 
+/// Coordinates cache operations across GPU memory, DRAM, and SSD tiers.
+///
+/// The dispatcher owns the high-level lookup and populate workflow used by
+/// clients that move data between GPU memory and storage.
+///
+/// # Examples
+///
+/// ```no_run
+/// use interfaces::{DispatcherConfig, IDispatcher};
+///
+/// fn init(dispatcher: &dyn IDispatcher, config: DispatcherConfig) {
+///     dispatcher.initialize(config).unwrap();
+/// }
+/// ```
 #[cfg(feature = "spdk")]
 component_macros::define_interface! {
     pub IDispatcher {

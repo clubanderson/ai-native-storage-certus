@@ -207,6 +207,17 @@ impl std::fmt::Debug for GpuDmaBuffer {
     }
 }
 
+/// Opens GPU IPC memory handles and prepares them for DMA operations.
+///
+/// # Examples
+///
+/// ```no_run
+/// use interfaces::IGpuServices;
+///
+/// fn init(gpu: &dyn IGpuServices) {
+///     gpu.initialize().unwrap();
+/// }
+/// ```
 define_interface! {
     pub IGpuServices {
         /// Initialize CUDA libraries and discover qualifying GPUs.

@@ -390,8 +390,21 @@ impl fmt::Debug for ClientChannels {
 // IBlockDevice
 // ---------------------------------------------------------------------------
 
-// The block device interface for channel-based client connections,
-// device introspection, and telemetry.
+/// Provides channel-based access to an NVMe block device component.
+///
+/// Clients connect once to obtain command and completion channels, then use the
+/// remaining methods for controller introspection and telemetry.
+///
+/// # Examples
+///
+/// ```ignore
+/// use interfaces::{Command, IBlockDevice};
+///
+/// fn probe_namespaces(device: &dyn IBlockDevice) {
+///     let client = device.connect_client().unwrap();
+///     client.command_tx.send(Command::NsProbe).unwrap();
+/// }
+/// ```
 define_interface! {
     pub IBlockDevice {
         /// Create a new client connection, returning channel endpoints.
@@ -430,7 +443,25 @@ define_interface! {
 // IBlockDeviceAdmin
 // ---------------------------------------------------------------------------
 
-// Administrative lifecycle/configuration API for block device components.
+/// Administrative lifecycle operations for block device components.
+///
+/// Use this interface to configure the target controller, start the actor
+/// thread, and shut the component down cleanly before tearing down SPDK.
+///
+/// # Examples
+///
+/// ```no_run
+/// use interfaces::{IBlockDeviceAdmin, PciAddress};
+///
+/// fn configure(admin: &dyn IBlockDeviceAdmin) {
+///     admin.set_pci_address(PciAddress {
+///         domain: 0,
+///         bus: 0x01,
+///         dev: 0x00,
+///         func: 0,
+///     });
+/// }
+/// ```
 define_interface! {
     pub IBlockDeviceAdmin {
         /// Set the PCI address of the controller to attach to.

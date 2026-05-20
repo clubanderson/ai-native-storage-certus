@@ -5,6 +5,15 @@ use std::fmt;
 use crate::idispatch_map::CacheKey;
 
 /// Errors returned by `IMemoryTier` operations.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::MemoryTierError;
+///
+/// let err = MemoryTierError::PoolFull;
+/// assert!(err.to_string().contains("pool full"));
+/// ```
 #[derive(Debug, Clone)]
 pub enum MemoryTierError {
     /// The memory pool is full and no space can be freed.
@@ -39,6 +48,17 @@ impl fmt::Display for MemoryTierError {
 
 impl std::error::Error for MemoryTierError {}
 
+/// Manages a byte-addressable DRAM cache tier for hot entries.
+///
+/// # Examples
+///
+/// ```no_run
+/// use interfaces::IMemoryTier;
+///
+/// fn capacity_bytes(tier: &dyn IMemoryTier) -> usize {
+///     tier.capacity()
+/// }
+/// ```
 #[cfg(feature = "spdk")]
 component_macros::define_interface! {
     pub IMemoryTier {

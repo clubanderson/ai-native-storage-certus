@@ -2,10 +2,28 @@
 
 use std::fmt;
 
-/// Key type for identifying extents in the dispatch map.
+/// Key type for identifying cache entries in the dispatch map.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::CacheKey;
+///
+/// let key: CacheKey = 42;
+/// assert_eq!(key, 42);
+/// ```
 pub type CacheKey = u64;
 
 /// Result of looking up a key in the dispatch map.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::LookupResult;
+///
+/// let result = LookupResult::NotExist;
+/// assert!(matches!(result, LookupResult::NotExist));
+/// ```
 #[cfg(feature = "spdk")]
 #[derive(Debug)]
 pub enum LookupResult {
@@ -41,6 +59,15 @@ unsafe impl Send for LookupResult {}
 unsafe impl Sync for LookupResult {}
 
 /// Errors returned by `IDispatchMap` operations.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::DispatchMapError;
+///
+/// let err = DispatchMapError::AlreadyExists(7);
+/// assert!(err.to_string().contains("already exists"));
+/// ```
 #[derive(Debug, Clone)]
 pub enum DispatchMapError {
     /// The specified key was not found in the map.
@@ -87,6 +114,20 @@ impl fmt::Display for DispatchMapError {
 
 impl std::error::Error for DispatchMapError {}
 
+/// Tracks where cache entries live and coordinates access to them.
+///
+/// The dispatch map bridges staging buffers, memory-tier pointers, and
+/// block-device offsets while enforcing read/write reference semantics.
+///
+/// # Examples
+///
+/// ```no_run
+/// use interfaces::IDispatchMap;
+///
+/// fn touch_entry(map: &dyn IDispatchMap, key: interfaces::CacheKey) {
+///     map.touch(key).unwrap();
+/// }
+/// ```
 #[cfg(feature = "spdk")]
 component_macros::define_interface! {
     pub IDispatchMap {

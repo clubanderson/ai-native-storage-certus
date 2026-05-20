@@ -15,6 +15,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 ///
 /// Each variant carries a descriptive message with actionable guidance
 /// to help the user resolve the issue.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::SpdkEnvError;
+///
+/// let err = SpdkEnvError::InitFailed("hugepages unavailable".into());
+/// assert!(err.to_string().contains("SPDK init failed"));
+/// ```
 #[derive(Debug, Clone)]
 pub enum SpdkEnvError {
     /// VFIO is not available: `/dev/vfio` not found or `vfio-pci` module not loaded.
@@ -60,6 +69,15 @@ impl std::error::Error for SpdkEnvError {}
 /// Error conditions reported by block device components.
 ///
 /// Each variant carries a descriptive message with actionable guidance.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::BlockDeviceError;
+///
+/// let err = BlockDeviceError::ReadFailed("queue pair reset".into());
+/// assert!(err.to_string().contains("Read failed"));
+/// ```
 #[derive(Debug, Clone)]
 pub enum BlockDeviceError {
     /// The block device has not been opened yet.
@@ -120,6 +138,15 @@ impl std::error::Error for BlockDeviceError {}
 /// PCI Bus-Device-Function address identifying a specific PCI device.
 ///
 /// Displayed in standard notation: `DDDD:BB:DD.F` (e.g., `0000:01:00.0`).
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::PciAddress;
+///
+/// let addr = PciAddress { domain: 0, bus: 1, dev: 0, func: 0 };
+/// assert_eq!(addr.to_string(), "0000:01:00.0");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PciAddress {
     /// PCI domain (segment).
@@ -143,6 +170,21 @@ impl fmt::Display for PciAddress {
 }
 
 /// PCI vendor/device/class identification for a device.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::PciId;
+///
+/// let id = PciId {
+///     class_id: 0x0108,
+///     vendor_id: 0x8086,
+///     device_id: 0xf1a5,
+///     subvendor_id: 0x8086,
+///     subdevice_id: 0x0001,
+/// };
+/// assert_eq!(id.vendor_id, 0x8086);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PciId {
     /// PCI class code.
@@ -161,6 +203,26 @@ pub struct PciId {
 ///
 /// Instances are immutable snapshots created during initialization and
 /// do not track runtime state changes.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::{PciAddress, PciId, VfioDevice};
+///
+/// let dev = VfioDevice {
+///     address: PciAddress { domain: 0, bus: 1, dev: 0, func: 0 },
+///     id: PciId {
+///         class_id: 0x0108,
+///         vendor_id: 0x8086,
+///         device_id: 0xf1a5,
+///         subvendor_id: 0x8086,
+///         subdevice_id: 0x0001,
+///     },
+///     numa_node: 0,
+///     device_type: "nvme".to_string(),
+/// };
+/// assert_eq!(dev.device_type, "nvme");
+/// ```
 #[derive(Debug, Clone)]
 pub struct VfioDevice {
     /// PCI BDF address uniquely identifying this device.
@@ -187,6 +249,24 @@ pub struct VfioDevice {
 ///   [`DmaBuffer::from_raw`], with a caller-supplied deallocation function.
 ///
 /// On [`Drop`] the stored deallocator is called automatically.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::DmaBuffer;
+///
+/// unsafe extern "C" fn free_vec(ptr: *mut std::ffi::c_void) {
+///     let _ = Vec::from_raw_parts(ptr as *mut u8, 4, 4);
+/// }
+///
+/// let mut bytes = Vec::with_capacity(4);
+/// bytes.extend_from_slice(&[1, 2, 3, 4]);
+/// let ptr = bytes.as_mut_ptr() as *mut std::ffi::c_void;
+/// std::mem::forget(bytes);
+///
+/// let buffer = unsafe { DmaBuffer::from_raw(ptr, 4, free_vec, -1) }.unwrap();
+/// assert_eq!(buffer.len(), 4);
+/// ```
 pub struct DmaBuffer {
     ptr: *mut std::ffi::c_void,
     len: usize,
@@ -205,17 +285,47 @@ static SPDK_ENV_ACTIVE_FLAG: AtomicBool = AtomicBool::new(false);
 /// during init/fini. This allows other code (notably the DmaBuffer Drop
 /// implementation) to avoid calling into SPDK after it has been torn down,
 /// which would otherwise lead to crashes.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::{is_spdk_env_active, set_spdk_env_active};
+///
+/// let previous = is_spdk_env_active();
+/// set_spdk_env_active(true);
+/// assert!(is_spdk_env_active());
+/// set_spdk_env_active(previous);
+/// ```
 pub fn set_spdk_env_active(active: bool) {
     SPDK_ENV_ACTIVE_FLAG.store(active, Ordering::Release);
 }
 
 /// Return whether the SPDK environment is currently marked active.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::is_spdk_env_active;
+///
+/// let _ = is_spdk_env_active();
+/// ```
 pub fn is_spdk_env_active() -> bool {
     SPDK_ENV_ACTIVE_FLAG.load(Ordering::Acquire)
 }
 
 /// Type alias for a pluggable DMA buffer allocator.
 /// Signature: `(size, alignment, numa_node) -> Result<DmaBuffer, String>`.
+///
+/// # Examples
+///
+/// ```
+/// use interfaces::{DmaAllocFn, DmaBuffer};
+///
+/// let alloc: DmaAllocFn = std::sync::Arc::new(|_size, _align, _numa| {
+///     Err::<DmaBuffer, _>("allocator not wired".to_string())
+/// });
+/// assert!(alloc(4096, 4096, Some(0)).is_err());
+/// ```
 pub type DmaAllocFn =
     std::sync::Arc<dyn Fn(usize, usize, Option<i32>) -> Result<DmaBuffer, String> + Send + Sync>;
 
