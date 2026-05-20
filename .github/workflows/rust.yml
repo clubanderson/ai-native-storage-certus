@@ -1,0 +1,44 @@
+name: Rust CI
+
+on:
+  push:
+    branches:
+      - unstable
+      - main
+  pull_request:
+    branches:
+      - unstable
+      - main
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build default workspace members
+        run: cargo build
+
+      - name: Test default workspace members
+        run: cargo test -- --test-threads 1
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy on default workspace members
+        run: cargo clippy -- -D warnings
