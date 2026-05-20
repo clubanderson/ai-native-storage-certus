@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const PROTOC_VERSION: &str = "25.1";
+const PROTOC_ZIP_SHA256: &str = "ed8fca87a11c888fed329d6a59c34c7d436165f662a2c875246ddb1ac2b6dd50";
 
 fn find_protoc() -> Option<PathBuf> {
     // Check PROTOC env var first
@@ -38,14 +39,31 @@ fn download_protoc() -> PathBuf {
     );
 
     let zip_path = out_dir.join("protoc.zip");
+    let checksum_path = out_dir.join("protoc.zip.sha256");
 
     let status = Command::new("curl")
-        .args(["-sL", "-o"])
+        .args(["-fsSL", "-o"])
         .arg(&zip_path)
         .arg(&url)
         .status()
         .expect("failed to run curl");
     assert!(status.success(), "failed to download protoc from {url}");
+
+    std::fs::write(
+        &checksum_path,
+        format!("{PROTOC_ZIP_SHA256}  protoc.zip\n"),
+    )
+    .expect("failed to write protoc checksum file");
+    let status = Command::new("sha256sum")
+        .current_dir(&out_dir)
+        .args(["--check", "--status"])
+        .arg("protoc.zip.sha256")
+        .status()
+        .expect("failed to run sha256sum");
+    if !status.success() {
+        std::fs::remove_file(&zip_path).ok();
+        panic!("downloaded protoc checksum did not match {PROTOC_ZIP_SHA256}");
+    }
 
     std::fs::create_dir_all(&protoc_dir).unwrap();
     let status = Command::new("unzip")
@@ -57,6 +75,7 @@ fn download_protoc() -> PathBuf {
         .expect("failed to run unzip");
     assert!(status.success(), "failed to unzip protoc");
 
+    std::fs::remove_file(&checksum_path).ok();
     std::fs::remove_file(&zip_path).ok();
     protoc_bin
 }

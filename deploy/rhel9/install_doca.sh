@@ -2,15 +2,19 @@
 #
 # https://docs.nvidia.com/dgx/dgx-el9-user-guide/installing-dofed-steps.html
 #
-sudo wget http://www.mellanox.com/downloads/ofed/RPM-GPG-KEY-Mellanox-SHA256
-sudo rpm --import RPM-GPG-KEY-Mellanox-SHA256
+GPG_KEY_PATH="/etc/pki/rpm-gpg/RPM-GPG-KEY-Mellanox-SHA256"
+
+curl -fsSL https://www.mellanox.com/downloads/ofed/RPM-GPG-KEY-Mellanox-SHA256 | sudo tee "$GPG_KEY_PATH" >/dev/null
+sudo rpm --import "$GPG_KEY_PATH"
 sudo rpm -q gpg-pubkey --qf '%{NAME}-%{VERSION}-%{RELEASE}\t%{SUMMARY}\n' | grep Mellanox
-sudo echo "[doca]
+cat <<'EOF' | sudo tee /etc/yum.repos.d/doca.repo >/dev/null
+[doca]
 name=DOCA Online Repo
 baseurl=https://linux.mellanox.com/public/repo/doca/DGX_latest_DOCA/rhel9/x86_64/
 enabled=1
-gpgcheck=0" > /tmp/doca.repo
-sudo mv /tmp/doca.repo /etc/yum.repos.d/doca.repo
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Mellanox-SHA256
+EOF
 sudo chown root.root /etc/yum.repos.d/doca.repo
 sudo dnf clean all -y
 sudo dnf update --nobest
