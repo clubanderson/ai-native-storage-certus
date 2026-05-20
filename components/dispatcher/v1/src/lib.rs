@@ -220,13 +220,17 @@ impl DispatcherComponentV0 {
                 ipc_handle.address as *mut std::ffi::c_void,
                 total_bytes,
             );
+            if let Err(e) = result {
+                let _ = mt.remove(key);
+                return Err(DispatcherError::IoError(format!(
+                    "GPU DMA copy (promote) failed: {e}"
+                )));
+            }
             std::mem::forget(temp_buf);
-            // Register promoted entry in dispatch-map.
+            // Register promoted entry in dispatch-map only after DMA succeeds.
             let _ = dm.create_memory_tier_entry(key, mem_ptr, ipc_handle.size);
             let _ = dm.release_write(key);
-            return result.map_err(|e| {
-                DispatcherError::IoError(format!("GPU DMA copy (promote) failed: {e}"))
-            });
+            return Ok(());
         }
 
         let idx = Self::drive_index(key, drives.len());
