@@ -221,12 +221,18 @@ impl DispatcherComponentV0 {
                 total_bytes,
             );
             std::mem::forget(temp_buf);
-            // Register promoted entry in dispatch-map.
+            // Fix #79: check DMA result before publishing to dispatch-map.
+            if result.is_err() {
+                let _ = dm.release_write(key);
+                let _ = mt.remove(key);
+                return result.map_err(|e| {
+                    DispatcherError::IoError(format!("GPU DMA copy (promote) failed: {e}"))
+                });
+            }
+            // Register promoted entry in dispatch-map only after DMA succeeds.
             let _ = dm.create_memory_tier_entry(key, mem_ptr, ipc_handle.size);
             let _ = dm.release_write(key);
-            return result.map_err(|e| {
-                DispatcherError::IoError(format!("GPU DMA copy (promote) failed: {e}"))
-            });
+            return Ok(());
         }
 
         let idx = Self::drive_index(key, drives.len());
@@ -240,7 +246,8 @@ impl DispatcherComponentV0 {
         // Use pipelined reader: SSD → memory-tier → GPU.
         // SAFETY: mem_ptr is a valid memory-tier slot for total_bytes.
         // ipc_handle.address is a valid GPU destination pointer.
-        unsafe {
+        // Fix #111: capture result so we can clean up write-ref and memory slot on error.
+        let pipeline_result = unsafe {
             pipeline::pipelined_ssd_to_gpu(
                 &*block_dev,
                 &**gpu,
@@ -249,7 +256,12 @@ impl DispatcherComponentV0 {
                 start_lba,
                 total_bytes,
                 numa_node,
-            )?;
+            )
+        };
+        if pipeline_result.is_err() {
+            let _ = dm.release_write(key);
+            let _ = mt.remove(key);
+            return pipeline_result;
         }
 
         // Update dispatch-map: remove old BlockDevice entry and create fresh MemoryTier.
