@@ -233,10 +233,14 @@ pub(crate) fn validate_lba_range(
     lba: u64,
     num_blocks: u64,
 ) -> Result<(), NvmeBlockError> {
-    if lba + num_blocks > ns.num_sectors {
+    let end = lba.checked_add(num_blocks).ok_or_else(|| {
+        NvmeBlockError::LbaOutOfRange(format!(
+            "lba={lba} + num_blocks={num_blocks} overflows u64",
+        ))
+    })?;
+    if end > ns.num_sectors {
         return Err(NvmeBlockError::LbaOutOfRange(format!(
-            "lba={lba} + num_blocks={num_blocks} = {} exceeds namespace {}'s sector count {}",
-            lba + num_blocks,
+            "lba={lba} + num_blocks={num_blocks} = {end} exceeds namespace {}'s sector count {}",
             ns.ns_id,
             ns.num_sectors,
         )));

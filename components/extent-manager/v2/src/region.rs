@@ -34,15 +34,20 @@ impl RegionState {
         }
     }
 
-    fn align_to_sector_size(&self, size: u32, sector_size: u32) -> u32 {
-        (size + sector_size - 1) / sector_size * sector_size
+    fn align_to_sector_size(size: u32, sector_size: u32) -> Option<u32> {
+        size.checked_add(sector_size - 1)
+            .map(|v| v / sector_size * sector_size)
     }
 
     pub fn alloc_extent(
         &mut self,
         size: u32,
     ) -> Result<(u64, usize, u64), ExtentManagerError> {
-        let element_size = self.align_to_sector_size(size, self.format_params.sector_size);
+        let element_size = Self::align_to_sector_size(size, self.format_params.sector_size)
+            .ok_or_else(|| ExtentManagerError::IoError(format!(
+                "size {size} overflows when aligning to sector size {}",
+                self.format_params.sector_size
+            )))?;
 
         // The SizeClassManager invariant: only non-full slabs appear in the list.
         // Iterate, removing any stale full entries we encounter (shouldn't happen
