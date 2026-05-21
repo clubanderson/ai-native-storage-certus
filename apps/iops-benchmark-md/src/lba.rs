@@ -63,13 +63,20 @@ impl SequentialLba {
         total_sectors: u64,
         max_blocks_per_io: u64,
     ) -> Self {
-        let region_size = total_sectors / num_threads as u64;
-        let start = thread_index as u64 * region_size;
-        let end = if thread_index == num_threads - 1 {
-            total_sectors - max_blocks_per_io
+        debug_assert!(num_threads > 0, "num_threads must be greater than zero");
+
+        let thread_count = num_threads.max(1) as u64;
+        let region_size = total_sectors / thread_count;
+        let start = (thread_index as u64).saturating_mul(region_size);
+        let end = if num_threads <= 1 || thread_index == num_threads - 1 {
+            total_sectors.saturating_sub(max_blocks_per_io)
         } else {
-            start + region_size - max_blocks_per_io
-        };
+            start
+                .saturating_add(region_size)
+                .saturating_sub(max_blocks_per_io)
+        }
+        .max(start);
+
         Self {
             current: start,
             start,
@@ -124,6 +131,20 @@ mod tests {
             last = lba;
         }
         panic!("sequential LBA did not wrap within expected iterations");
+    }
+
+    #[test]
+    fn sequential_lba_single_thread_clamps_end() {
+        let mut gen = SequentialLba::new(0, 1, 32, 32);
+        assert_eq!(gen.next_lba(32), 0);
+        assert_eq!(gen.next_lba(32), 0);
+    }
+
+    #[test]
+    fn sequential_lba_region_size_equal_to_max_io_clamps_per_thread_end() {
+        let mut gen = SequentialLba::new(1, 4, 64, 16);
+        assert_eq!(gen.next_lba(16), 16);
+        assert_eq!(gen.next_lba(16), 16);
     }
 
     #[test]
