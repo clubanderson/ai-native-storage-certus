@@ -12,7 +12,7 @@ pipeline {
           sh '[ -L "./deps/spdk-build" ] || ln -s "/opt/spdk-build/" "./deps/spdk-build"'
           sh 'cd ./kernel/modules/gdrcopy/; make'
         script {
-          def status = sh(script: '. ~/.cargo/env ; cargo build', returnStatus: true)
+          def status = sh(script: '. ~/.cargo/env ; cargo build --workspace', returnStatus: true)
           echo "Server build exit status:-> ${status}"
 
           if (status != 0) {
@@ -23,17 +23,17 @@ pipeline {
     }
     stage('Hardware-Agnostic Unit Tests') {
       steps {
-        sh '. ~/.cargo/env ; cargo t --workspace'
+        sh '. ~/.cargo/env ; cargo test --workspace'
       }
     }
     stage('GPU Unit Tests') {
       steps {
-        sh '. ~/.cargo/env ; cargo t --workspace --features gpu'
+        sh '. ~/.cargo/env ; cargo test --workspace --features gpu'
       }
     }
     stage('SPDK Unit Tests') {
       steps {
-        sh '. ~/.cargo/env ; cargo t --workspace --features spdk'
+        sh '. ~/.cargo/env ; cargo test --workspace --features spdk'
       }
     }
     stage('Benchmarks') {

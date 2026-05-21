@@ -1,0 +1,14 @@
+name: Rust CI
+on:
+  push:
+    branches: [unstable]
+  pull_request:
+    branches: [unstable]
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace
+      - run: cargo test --workspace
