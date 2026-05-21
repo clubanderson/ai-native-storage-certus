@@ -7,6 +7,16 @@ pub(crate) struct BuddyAllocator {
 }
 
 impl BuddyAllocator {
+    fn blocks_for_allocation(&self, size: u64) -> u64 {
+        size.div_ceil(self.sector_size as u64)
+    }
+
+    fn local_offset(&self, abs_offset: u64) -> u64 {
+        abs_offset
+            .checked_sub(self.base_offset)
+            .expect("buddy allocator offset below base_offset")
+    }
+
     pub fn new(base_offset: u64, total_usable_size: u64, sector_size: u32) -> Self {
         let usable_blocks = total_usable_size / sector_size as u64;
         let max_order = if usable_blocks > 1 {
@@ -55,8 +65,7 @@ impl BuddyAllocator {
     }
 
     pub fn alloc(&mut self, size: u64) -> Option<u64> {
-        let blocks_needed =
-            (size + self.sector_size as u64 - 1) / self.sector_size as u64;
+        let blocks_needed = self.blocks_for_allocation(size);
         let order_needed = if blocks_needed <= 1 {
             0
         } else {
@@ -84,8 +93,8 @@ impl BuddyAllocator {
     }
 
     pub fn free(&mut self, abs_offset: u64, size: u64) {
-        let offset = abs_offset - self.base_offset;
-        let blocks = size / self.sector_size as u64;
+        let offset = self.local_offset(abs_offset);
+        let blocks = self.blocks_for_allocation(size);
         let mut order = if blocks <= 1 {
             0
         } else {
@@ -117,7 +126,7 @@ impl BuddyAllocator {
     }
 
     pub fn mark_allocated(&mut self, abs_offset: u64, size: u64) {
-        let offset = abs_offset - self.base_offset;
+        let offset = self.local_offset(abs_offset);
         let blocks = size / self.sector_size as u64;
         let target_order = if blocks <= 1 {
             0
@@ -295,5 +304,28 @@ mod tests {
         let a = buddy.alloc(4096).unwrap();
         assert_ne!(a, base);
         assert!(a >= base);
+    }
+
+    #[test]
+    fn free_rounds_size_up_to_sector_boundary() {
+        let mut buddy = BuddyAllocator::new(0, 4 * 4096, 4096);
+        let a = buddy.alloc(4097).unwrap();
+        assert_eq!(buddy.total_free(), 2 * 4096);
+        buddy.free(a, 4097);
+        assert_eq!(buddy.total_free(), 4 * 4096);
+    }
+
+    #[test]
+    #[should_panic(expected = "buddy allocator offset below base_offset")]
+    fn free_rejects_offset_before_base() {
+        let mut buddy = BuddyAllocator::new(4096, 4 * 4096, 4096);
+        buddy.free(0, 4096);
+    }
+
+    #[test]
+    #[should_panic(expected = "buddy allocator offset below base_offset")]
+    fn mark_allocated_rejects_offset_before_base() {
+        let mut buddy = BuddyAllocator::new(4096, 4 * 4096, 4096);
+        buddy.mark_allocated(0, 4096);
     }
 }
